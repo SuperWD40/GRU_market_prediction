@@ -25,8 +25,8 @@ class GRUModel(nn.Module):
         self.fc = nn.Linear(in_features=hidden_size, out_features=output_size, device=self.device)
     
     def forward(self, x):
-        _, hidden = self.gru(x.to(self.device))  # Utiliser uniquement l'état caché final
-        out = self.fc(hidden[-1])  # Appliquer le FC sur l'état caché final
+        out, _ = self.gru(x.to(self.device))
+        out = self.fc(out[:, -1, :])
         return out
 
 class Pipeline:
@@ -134,12 +134,11 @@ class Pipeline:
             
             elapsed_time = time.time() - start_epoch
             elapsed_time_str = str(timedelta(seconds=elapsed_time))
+            self.time_elapsed =  round(time.time() - start_model, 4)
 
             print(f"Epoch {epoch+1}/{self.epochs}, Train Loss: {self.train_loss:,.6f}, Validation Loss: { self.val_loss:,.6f}, Time: {elapsed_time_str}")
             self.train_losses.append(self.train_loss)
             self.val_losses.append(self.val_loss)
-
-        self.time_elapsed =  round(time.time() - start_model, 4)
 
     def loss(self, plot=False):
         if plot:
