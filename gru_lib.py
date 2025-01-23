@@ -5,7 +5,7 @@ from datetime import timedelta, datetime
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset, random_split
-from sklearn.preprocessing import MinMaxScaler # attention pas utilisé pour le moment
+from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import r2_score, mean_absolute_percentage_error, mean_squared_error
 import random
 import os
@@ -37,13 +37,15 @@ class Pipeline:
         self.inputs = inputs
         self.outputs = outputs
 
-    def hyper_param(self, lr=0.001, batch_size=32, num_workers=4, epochs=10):
+    def hyper_param(self, lr=0.001, batch_size=32, num_workers=4, epochs=10, delta=1, weight_decay=1e-4):
         self.lr = lr
         self.batch_size = batch_size
         self.epochs = epochs
-        self.num_workers=num_workers #Not used for the moment
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.lr)
-        self.criterion = nn.MSELoss()
+        self.delta = delta
+        self.num_workers=num_workers
+        self.weight_decay=weight_decay
+        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.lr, weight_decay=self.weight_decay)
+        self.criterion = nn.HuberLoss(delta=self.delta)
 
     def preprocess(self, train_size=0.75, val_size=0.125, test_size=0.125, seq_size=10):
         if not np.isclose(train_size + val_size + test_size, 1.0):
@@ -55,7 +57,10 @@ class Pipeline:
         self.seq_size = seq_size
     
         # Convertir les données en tenseurs PyTorch
-        features = torch.tensor(self.dataset[self.inputs].values, dtype=torch.float32)
+        scaled_inputs = self.dataset[self.inputs].values
+        self.scaler = MinMaxScaler()
+        scaled_inputs = self.scaler.fit_transform(scaled_inputs)
+        features = torch.tensor(scaled_inputs, dtype=torch.float32)
         labels = torch.tensor(self.dataset[self.outputs].values, dtype=torch.float32)
 
         # Créer les séquences
@@ -142,7 +147,7 @@ class Pipeline:
 
     def loss(self, plot=False):
         if plot:
-            plt.figure(figsize=(8,5))
+            plt.figure(figsize=(6,4))
             plt.plot(self.train_losses, label="Train Loss")
             plt.plot(self.val_losses, label="Validation Loss")
             plt.xlabel("Epochs")
@@ -172,7 +177,7 @@ class Pipeline:
                 y_test.extend(y_batch.cpu().numpy())
 
         if plot:
-            plt.figure(figsize=(6,6))
+            plt.figure(figsize=(4,4))
             sns.scatterplot(x=y_test, y=y_pred, alpha=0.5)
             plt.plot([min(y_test), max(y_test)], [min(y_test), max(y_test)], color="red", linestyle="--")
             plt.xlabel("Actuals")
