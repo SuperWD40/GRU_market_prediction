@@ -193,3 +193,29 @@ def bollinger_band_width(close, window=20, num_std=2):
     band_width = upper_band - lower_band
 
     return band_width.fillna(0)  # Remplacer les NaN éventuels par zéro
+
+def vwma(close, volume, window=20):
+    """
+    Calculer la Volume-Weighted Moving Average (VWMA) à partir de séries temporelles.
+
+    Paramètres :
+        close (pd.Series) : Série temporelle des prix de clôture.
+        volume (pd.Series) : Série temporelle des volumes échangés.
+        window (int) : La période de calcul pour la VWMA (par défaut : 20).
+
+    Retourne :
+        pd.Series : Une série contenant les valeurs de la VWMA.
+    """
+    # Vérifier que les séries ont la même longueur
+    if len(close) != len(volume):
+        raise ValueError("Les séries 'close' et 'volume' doivent avoir la même longueur.")
+
+    # Calculer la somme glissante des (close * volume)
+    weighted_price = close * volume
+    sum_weighted_price = weighted_price.rolling(window=window).sum()
+    sum_volume = volume.rolling(window=window).sum()
+
+    # Calculer la VWMA
+    vwma = sum_weighted_price / sum_volume
+
+    return vwma.fillna(0)  # Remplacer les NaN éventuels par zéro
