@@ -11,6 +11,8 @@ import random
 import os
 import matplotlib.pyplot as plt
 import seaborn as sns
+import uuid
+import json
 
 class GRUModel(nn.Module):
     def __init__(self, input_size, hidden_size=16, num_layers=2, output_size=1, dropout=0.0, device="cpu"):
@@ -30,12 +32,15 @@ class GRUModel(nn.Module):
         return out
 
 class Pipeline:
-    def __init__(self, model, dataset, inputs, outputs):
+    def __init__(self, model, dataset, inputs, outputs, ticker=None, freq=None):
+        self.id = uuid.uuid4()
         self.model = model
         self.dataset = dataset[inputs + [outputs]]
         self.device = self.model.device
         self.inputs = inputs
         self.outputs = outputs
+        self.ticker = ticker
+        self.freq = freq
 
     def hyper_param(self, lr=0.001, batch_size=32, num_workers=4, epochs=10, delta=1, weight_decay=1e-4):
         self.lr = lr
@@ -111,12 +116,13 @@ class Pipeline:
     def train(self):
         self.time_launch = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         start_model = time.time()
-        self.train_losses = []
-        self.val_losses = []
+        self.train_loss_df = []
+        self.val_loss_df = []
 
         for epoch in range(self.epochs):
             start_epoch = time.time()
             
+            # TRAIN
             self.model.train()
             train_loss = 0.0
             for X_batch, y_batch in self.train_loader:
@@ -128,8 +134,10 @@ class Pipeline:
                 loss.backward()
                 self.optimizer.step()
                 train_loss += loss.item()
-            self.train_loss = train_loss / len(self.train_loader)
+            train_loss = train_loss / len(self.train_loader)
+            self.train_loss = self.outputs_scaler.inverse_transform(train_loss)
             
+            # VAL
             self.model.eval()
             val_loss = 0.0
             with torch.no_grad():
@@ -137,68 +145,18 @@ class Pipeline:
                     X_batch, y_batch = X_batch.to(self.device), y_batch.to(self.device)
                     outputs = self.model(X_batch)
                     val_loss += self.criterion(outputs.squeeze(), y_batch).item()
-            self.val_loss = train_loss / len(self.val_loader)
-            
+            val_loss = val_loss / len(self.val_loader)
+            self.val_loss = self.outputs_scaler.inverse_transform(val_loss)
+
+            # TIME
             elapsed_time = time.time() - start_epoch
             elapsed_time_str = str(timedelta(seconds=elapsed_time))
             self.time_elapsed =  round(time.time() - start_model, 4)
-
-            print(f"Epoch {epoch+1}/{self.epochs}, Train Loss: {self.train_loss*100:,.6f}, Validation Loss: { self.val_loss*100:,.6f}, Time: {elapsed_time_str}")
-            self.train_losses.append(self.train_loss)
-            self.val_losses.append(self.val_loss)
-
-    def loss(self, plot=False):
-        if plot:
-            plt.figure(figsize=(8,6))
-            plt.plot(self.train_losses, label="Train Loss")
-            plt.plot(self.val_losses, label="Validation Loss")
-            plt.xlabel("Epochs")
-            plt.ylabel("Loss")
-            plt.legend()
-            plt.title("Évolution des pertes (Overfitting si écart grand)")
-            plt.show()
-
-        else:
-            loss_df = pd.DataFrame({
-                "Train loss" : self.train_losses,
-                'Val loss' : self.val_losses
-            })
-            return loss_df
-    
-    def pred(self, plot=False):
-        self.model.eval()
-        test_loss = 0.0
-        y_pred, y_test = [], []
-
-        with torch.no_grad():
-            for X_batch, y_batch in self.test_loader:
-                X_batch, y_batch = X_batch.to(self.device), y_batch.to(self.device)
-                outputs = self.model(X_batch)
-                test_loss += self.criterion(outputs.squeeze(), y_batch).item()
-                y_pred.extend(outputs.squeeze().cpu().numpy())
-                y_test.extend(y_batch.cpu().numpy())
+            print(f"Epoch {epoch+1}/{self.epochs}, Train Loss: {self.train_loss:,.6f}, Validation Loss: { self.val_loss:,.6f}, Time: {elapsed_time_str}")
+            self.train_loss_df.append(train_loss)
+            self.val_loss_df.append(val_loss)
         
-        # Inverser la normalisation des prédictions et des valeurs réelles
-        y_pred = self.outputs_scaler.inverse_transform(np.array(y_pred).reshape(-1, 1)).flatten()
-        y_test = self.outputs_scaler.inverse_transform(np.array(y_test).reshape(-1, 1)).flatten()
-
-        if plot:
-            plt.figure(figsize=(6,6))
-            sns.scatterplot(x=y_test, y=y_pred, alpha=0.5)
-            plt.plot([min(y_test), max(y_test)], [min(y_test), max(y_test)], color="red", linestyle="--")
-            plt.xlabel("Actuals")
-            plt.ylabel("Predictions")
-            plt.title("Predicted vs Actual")
-            plt.show()
-
-        else:
-            y_df = pd.DataFrame({
-                "y_test" : y_test,
-                "y_pred" : y_pred
-            })
-            return y_df
-
-    def eval(self):
+        # TEST
         self.model.eval()
         test_loss = 0.0
         y_pred, y_test = [], []
@@ -212,70 +170,108 @@ class Pipeline:
                 y_test.extend(y_batch.cpu().numpy())
         self.test_loss = test_loss / len(self.test_loader)
 
-        # Inverser la normalisation des prédictions et des valeurs réelles
-        y_pred = self.outputs_scaler.inverse_transform(np.array(y_pred).reshape(-1, 1)).flatten()
-        y_test = self.outputs_scaler.inverse_transform(np.array(y_test).reshape(-1, 1)).flatten()
-        
-        self.r2 = r2_score(y_test, y_pred)
+        self.y_pred = self.outputs_scaler.inverse_transform(np.array(y_pred).reshape(-1, 1)).flatten()
+        self.y_test = self.outputs_scaler.inverse_transform(np.array(y_test).reshape(-1, 1)).flatten()
+
+    def loss(self, plot=False):
+        if plot:
+            plt.figure(figsize=(8,6))
+            plt.plot(self.train_loss_df, label="Train Loss")
+            plt.plot(self.val_loss_df, label="Validation Loss")
+            plt.xlabel("Epochs")
+            plt.ylabel("Loss")
+            plt.legend()
+            plt.title("Évolution des pertes (Overfitting si écart grand)")
+            plt.show()
+
+        else:
+            loss_df = pd.DataFrame({
+                "Train loss" : self.train_loss_df,
+                'Val loss' : self.val_loss_df
+            })
+            return loss_df
+    
+    def pred(self, plot=False):
+        if plot:
+            plt.figure(figsize=(6,6))
+            sns.scatterplot(x=self.y_test, y=self.y_pred, alpha=0.5)
+            plt.plot([min(self.y_test), max(self.y_test)], [min(self.y_test), max(self.y_test)], color="red", linestyle="--")
+            plt.xlabel("Actuals")
+            plt.ylabel("Predictions")
+            plt.title("Predicted vs Actual")
+            plt.show()
+
+        else:
+            return pd.DataFrame({
+                "y_test" : self.y_test,
+                "y_pred" : self.y_pred
+            })
+
+    def eval(self):
+        self.r2 = r2_score(self.y_test, self.y_pred)
         n = len(y_test)
         p = next(iter(self.test_loader))[0].shape[-1]
         self.r2_bar = 1 - ((1 - self.r2) * (n - 1)) / (n - p - 1)
-        self.mape = mean_absolute_percentage_error(y_test, y_pred)
-        self.rmse = mean_squared_error(y_test, y_pred) ** 0.5
+        self.mape = mean_absolute_percentage_error(self.y_test, self.y_pred)
+        self.mse = mean_squared_error(self.y_test, self.y_pred) ** 0.5
+        self.rmse = mse ** 0.5
         
         print(f"Time elapsed: {self.time_elapsed}")
         print(f"Train Loss: {(self.train_loss):,.6f}")
         print(f"Val Loss: {(self.val_loss):,.6f}")
-        print(f"Test Loss: {(test_loss):,.6f}")
+        print(f"Test Loss: {(self.test_loss):,.6f}")
         print(f"R^2 : {self.r2:.4f}")
         print(f"R^2 ajusté : {self.r2_bar:.4f}")
         print(f"MAPE : {self.mape:.4f}")
+        print(f"MSE : {self.mse:,.6f}")
         print(f"RMSE : {self.rmse:,.6f}")
 
-    def save(self, path):
-        # Charger le fichier CSV s'il existe, sinon créer un DataFrame vide
-        if os.path.exists(path):
-            results = pd.read_csv(path, index_col=0)
-        else:
-            results = pd.DataFrame()
-
-        # Construire le dictionnaire des résultats
-        results_dict = {
-            'Dataset size'  : len(self.dataset),
-            'Window size'   : self.seq_size,
-            'Hidden size'   : self.model.hidden_size,
-            'Num layers'    : self.model.num_layers,
-            'Dropout'       : self.model.dropout,
-            'Input size'    : len(self.inputs),
-            'Train size'    : self.train_size,
-            'Val size'      : self.val_size,
-            'Test size'     : self.test_size,
-            'Batch size'    : self.batch_size,
-            'Epochs'        : self.epochs,
-            'Learning rate' : self.lr,
-            'Train Loss'    : round(self.train_loss, 6),
-            'Val Loss'      : round(self.val_loss, 6),
-            'Test Loss'     : round(self.test_loss, 6),
-            'R2'            : round(self.r2, 4),
-            'R2_bar'        : round(self.r2_bar, 4),
-            'MAPE'          : round(self.mape, 4),
-            'RMSE'          : round(self.rmse, 4),
-            'Training time' : self.time_elapsed,
-            'Training device': self.device,
-            'Outputs'       : self.outputs,
+    def metadata(self):
+        return {
+            'General': {
+                'Ticker': self.ticker
+                'ID': self.id,
+                'Window size': self.seq_size,
+                'Training time': self.time_elapsed,
+                'Training device': self.device,
+            },
+            'Dataset': {
+                'Start': str(self.dataset.iloc[0])
+                'End': str(self.dataset.iloc[-1])
+                'Dataset Size': len(self.dataset),
+                'Dataset freq': self.freq
+                'Train size': self.train_size,
+                'Val size': self.val_size,
+                'Test size': self.test_size,
+            },
+            'Model': {
+                'Input size': len(self.inputs)
+                'Output size': len(self.outputs)
+                'Hidden size': self.model.hidden_size,
+                'Num layers': self.model.num_layers,
+                'Dropout': self.model.dropout,
+            },
+            'Hyperparameter': {
+                'Batch size': self.batch_size,
+                'Epochs': self.epochs,
+                'Num workers': self.num_workers,
+                'Learning rate': self.lr,
+                'Delta': self.delta,
+                'Weight decay': self.weight_decay
+            },
+            'Model Performance': {
+                'Train Loss': round(self.train_loss, 6),
+                'Val Loss': round(self.val_loss, 6),
+                'Test Loss': round(self.test_loss, 6),
+                'R2': round(self.r2, 4),
+                'R2_bar': round(self.r2_bar, 4),
+                'MAPE': round(self.mape, 4),
+                'MSE': round(self.mse, 4),
+                'RMSE': round(self.rmse, 4),
+            },
+            'Inputs and Outputs': {
+                'Inputs': self.inputs,
+                'Outputs': self.outputs,
+            },
         }
-
-        # Ajouter les entrées
-        for n, input_value in enumerate(self.inputs):
-            results_dict[f"Input_{n}"] = input_value
-
-        # Convertir en DataFrame (assure l'alignement des colonnes)
-        new_entry = pd.Series(results_dict, name=self.time_launch)
-
-        # Concaténer les anciennes et nouvelles données, en alignant sur les colonnes
-        results = pd.concat([results, new_entry], axis=1, sort=False)
-
-        # Sauvegarder dans le fichier CSV
-        results.to_csv(path)
-
 

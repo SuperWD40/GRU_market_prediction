@@ -220,8 +220,6 @@ def vwma(close, volume, window=20):
 
     return vwma.fillna(0)  # Remplacer les NaN éventuels par zéro
 
-import pandas as pd
-
 def atr(high, low, close, window=14):
     """
     Calculer l'Average True Range (ATR) à partir de séries temporelles.
