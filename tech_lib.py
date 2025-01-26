@@ -219,3 +219,33 @@ def vwma(close, volume, window=20):
     vwma = sum_weighted_price / sum_volume
 
     return vwma.fillna(0)  # Remplacer les NaN éventuels par zéro
+
+import pandas as pd
+
+def atr(high, low, close, window=14):
+    """
+    Calculer l'Average True Range (ATR) à partir de séries temporelles.
+
+    Paramètres :
+        high (pd.Series) : Série temporelle des prix les plus hauts.
+        low (pd.Series) : Série temporelle des prix les plus bas.
+        close (pd.Series) : Série temporelle des prix de clôture.
+        window (int) : La période de calcul pour l'ATR (par défaut : 14).
+
+    Retourne :
+        pd.Series : Une série contenant les valeurs de l'ATR.
+    """
+    # Vérifier que les séries ont la même longueur
+    if len(high) != len(low) or len(high) != len(close):
+        raise ValueError("Les séries 'high', 'low' et 'close' doivent avoir la même longueur.")
+
+    # Calculer la True Range (TR)
+    tr1 = high - low  # TR classique
+    tr2 = (high - close.shift(1)).abs()  # TR avec le précédent close
+    tr3 = (low - close.shift(1)).abs()  # TR avec le précédent close
+    true_range = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)  # Prendre le max des 3 TR
+
+    # Calculer l'ATR en utilisant une moyenne mobile simple (SMA) de la True Range
+    atr = true_range.rolling(window=window).mean()
+
+    return atr.fillna(0)  # Remplacer les NaN éventuels par zéro
