@@ -1,0 +1,57 @@
+{
+    "General": {
+        "Ticker": "BTCUSDT",
+        "ID": "8eebaa32-6514-4790-80e0-d35fab31f536",
+        "Window size": 60,
+        "Training time": 0.7022,
+        "Training device": "cuda"
+    },
+    "Dataset": {
+        "Start date": "2025-01-08 01:20:00",
+        "End date": "2025-01-14 23:59:00",
+        "Dataset Size": 10000,
+        "Dataset freq": "1m",
+        "Train size": 0.7,
+        "Val size": 0.15,
+        "Test size": 0.15
+    },
+    "Model": {
+        "Input size": 9,
+        "Output size": 12,
+        "Hidden size": 8,
+        "Num layers": 2,
+        "Dropout": 0.15
+    },
+    "Hyperparameter": {
+        "Batch size": 128,
+        "Epochs": 3,
+        "Num workers": 4,
+        "Learning rate": 0.001,
+        "Delta": 1,
+        "Weight decay": 0.0001
+    },
+    "Model Performance": {
+        "Train Loss": 89460.926239,
+        "Val Loss": 89444.978618,
+        "Test Loss": 89444.428131,
+        "R2": 0.7157,
+        "R2_bar": 0.714,
+        "MAPE": 0.0052,
+        "MSE": 648.992,
+        "RMSE": 25.4753
+    },
+    "Inputs and Outputs": {
+        "Inputs": [
+            "High",
+            "Low",
+            "Open",
+            "Close",
+            "Volume",
+            "obv",
+            "cmf_60",
+            "vwma_60",
+            "vwma_120"
+        ],
+        "Outputs": "Close_target"
+    }
+}
