@@ -17,7 +17,7 @@ import json
 class GRUModel(nn.Module):
     def __init__(self, input_size, hidden_size=16, num_layers=2, output_size=1, dropout=0.0, device="cpu"):
         super(GRUModel, self).__init__()
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = device
         self.output_size = output_size
         self.input_size = input_size
         self.hidden_size = hidden_size
@@ -134,8 +134,8 @@ class Pipeline:
                 loss.backward()
                 self.optimizer.step()
                 train_loss += loss.item()
-            train_loss = train_loss / len(self.train_loader)
-            self.train_loss = self.outputs_scaler.inverse_transform(train_loss)
+            train_loss /= len(self.train_loader)
+            self.train_loss = (self.outputs_scaler.inverse_transform(np.array(train_loss).reshape(1, -1))).item()
             
             # VAL
             self.model.eval()
@@ -145,16 +145,16 @@ class Pipeline:
                     X_batch, y_batch = X_batch.to(self.device), y_batch.to(self.device)
                     outputs = self.model(X_batch)
                     val_loss += self.criterion(outputs.squeeze(), y_batch).item()
-            val_loss = val_loss / len(self.val_loader)
-            self.val_loss = self.outputs_scaler.inverse_transform(val_loss)
+            val_loss /= len(self.val_loader)
+            self.val_loss = (self.outputs_scaler.inverse_transform(np.array(val_loss).reshape(1, -1))).item()
 
             # TIME
             elapsed_time = time.time() - start_epoch
             elapsed_time_str = str(timedelta(seconds=elapsed_time))
             self.time_elapsed =  round(time.time() - start_model, 4)
             print(f"Epoch {epoch+1}/{self.epochs}, Train Loss: {self.train_loss:,.6f}, Validation Loss: { self.val_loss:,.6f}, Time: {elapsed_time_str}")
-            self.train_loss_df.append(train_loss)
-            self.val_loss_df.append(val_loss)
+            self.train_loss_df.append(self.train_loss)
+            self.val_loss_df.append(self.val_loss)
         
         # TEST
         self.model.eval()
@@ -168,7 +168,8 @@ class Pipeline:
                 test_loss += self.criterion(outputs.squeeze(), y_batch).item()
                 y_pred.extend(outputs.squeeze().cpu().numpy())
                 y_test.extend(y_batch.cpu().numpy())
-        self.test_loss = test_loss / len(self.test_loader)
+        test_loss /= len(self.test_loader)
+        self.test_loss = (self.outputs_scaler.inverse_transform(np.array(test_loss).reshape(1, -1))).item()
 
         self.y_pred = self.outputs_scaler.inverse_transform(np.array(y_pred).reshape(-1, 1)).flatten()
         self.y_test = self.outputs_scaler.inverse_transform(np.array(y_test).reshape(-1, 1)).flatten()
@@ -209,12 +210,12 @@ class Pipeline:
 
     def eval(self):
         self.r2 = r2_score(self.y_test, self.y_pred)
-        n = len(y_test)
+        n = len(self.y_test)
         p = next(iter(self.test_loader))[0].shape[-1]
         self.r2_bar = 1 - ((1 - self.r2) * (n - 1)) / (n - p - 1)
         self.mape = mean_absolute_percentage_error(self.y_test, self.y_pred)
         self.mse = mean_squared_error(self.y_test, self.y_pred) ** 0.5
-        self.rmse = mse ** 0.5
+        self.rmse = self.mse ** 0.5
         
         print(f"Time elapsed: {self.time_elapsed}")
         print(f"Train Loss: {(self.train_loss):,.6f}")
@@ -229,24 +230,24 @@ class Pipeline:
     def metadata(self):
         return {
             'General': {
-                'Ticker': self.ticker
-                'ID': self.id,
+                'Ticker': self.ticker,
+                'ID': str(self.id),
                 'Window size': self.seq_size,
                 'Training time': self.time_elapsed,
                 'Training device': self.device,
             },
             'Dataset': {
-                'Start': str(self.dataset.iloc[0])
-                'End': str(self.dataset.iloc[-1])
+                'Start date': str(self.dataset.index[0]),
+                'End date': str(self.dataset.index[-1]),
                 'Dataset Size': len(self.dataset),
-                'Dataset freq': self.freq
+                'Dataset freq': self.freq,
                 'Train size': self.train_size,
                 'Val size': self.val_size,
                 'Test size': self.test_size,
             },
             'Model': {
-                'Input size': len(self.inputs)
-                'Output size': len(self.outputs)
+                'Input size': len(self.inputs),
+                'Output size': len(self.outputs),
                 'Hidden size': self.model.hidden_size,
                 'Num layers': self.model.num_layers,
                 'Dropout': self.model.dropout,
@@ -271,7 +272,7 @@ class Pipeline:
             },
             'Inputs and Outputs': {
                 'Inputs': self.inputs,
-                'Outputs': self.outputs,
+                'Outputs': self.outputs
             },
         }
 
